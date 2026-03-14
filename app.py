@@ -8,6 +8,7 @@ evaluating math expressions sent from the client.
 from __future__ import annotations
 
 import ast
+import os
 import operator
 import re
 from flask import Flask, jsonify, render_template, request
@@ -139,4 +140,7 @@ def calculate_route():
 
 
 if __name__ == "__main__":
-    app.run(debug=True, host="0.0.0.0", port=5000)
+    use_https = os.getenv("USE_HTTPS") == "1"
+    port = int(os.getenv("PORT", "5000"))
+    ssl_context = "adhoc" if use_https else None
+    app.run(debug=True, host="0.0.0.0", port=port, ssl_context=ssl_context)

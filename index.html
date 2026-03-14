@@ -10,12 +10,12 @@
 
 <main class="grid">
   <section class="card hero">
-      <div class="eyebrow">AI Calculator · Voice + Keyboard</div>
+      <div class="eyebrow">AI Calculator | Voice + Keyboard</div>
       <h1>Speak it. Type it.<br><span class="accent">Get instant math.</span></h1>
       <p class="lede">Natural language to arithmetic with safe evaluation. Say "twenty one times four" or type "21 * 4".</p>
 
       <div class="controls">
-          <button id="voiceButton" class="primary" onclick="toggleVoice()">🎤 Start Listening</button>
+          <button id="voiceButton" class="primary" onclick="toggleVoice()">Start Listening</button>
           <span id="status" class="status">Idle</span>
       </div>
 
@@ -28,9 +28,9 @@
       </form>
 
       <div class="output">
-          <div class="row"><span class="label">Heard / Typed</span><span id="command">—</span></div>
-          <div class="row"><span class="label">Parsed Expression</span><span id="expression">—</span></div>
-          <div class="row highlight"><span class="label">Result</span><span id="result">—</span></div>
+          <div class="row"><span class="label">Heard / Typed</span><span id="command">&mdash;</span></div>
+          <div class="row"><span class="label">Parsed Expression</span><span id="expression">&mdash;</span></div>
+          <div class="row highlight"><span class="label">Result</span><span id="result">&mdash;</span></div>
       </div>
 
       <p id="error" class="error"></p>
@@ -61,25 +61,71 @@ const synth = window.speechSynthesis;
 let recognition;
 let listening = false;
 
-function initRecognition() {
+// Check if we have a secure context for Web Speech API
+// Requires: HTTPS OR localhost/127.0.0.1 OR ::1 (IPv6 localhost)
+function isSecureContext() {
+    if (window.isSecureContext) return true;
+    const hostname = window.location.hostname;
+    const isLocalhost = ['localhost', '127.0.0.1', '::1'].includes(hostname);
+    const isHTTPS = window.location.protocol === 'https:';
+    return isHTTPS || isLocalhost;
+}
+
+const secureForVoice = isSecureContext();
+
+function ensureVoiceReady() {
     if (!SpeechRecognition) {
-        setError('Your browser does not support speech recognition. Try Chrome desktop.');
-        return;
+        setError('Your browser does not support speech recognition. Try Chrome desktop.', true);
+        return false;
     }
+    if (!secureForVoice) {
+        const suggestedUrl = 'http://localhost:5000';
+        setError(`Voice requires secure context. Use ${suggestedUrl} or enable HTTPS with USE_HTTPS=1`, true);
+        return false;
+    }
+    if (!navigator.onLine) {
+        setError('You appear offline. Reconnect for voice mode or use keyboard input.', true);
+        return false;
+    }
+    return true;
+}
+
+function initRecognition() {
+    if (!ensureVoiceReady()) return;
 
     recognition = new SpeechRecognition();
     recognition.lang = 'en-US';
     recognition.continuous = false;
     recognition.interimResults = false;
 
-    recognition.onstart = () => updateStatus('Listening…');
+    recognition.onstart = () => updateStatus('Listening...');
     recognition.onend = () => {
         listening = false;
         updateStatus('Idle');
         updateButton();
     };
     recognition.onerror = (event) => {
-        setError(event.error || 'Speech recognition error');
+        if (event.error === 'network') {
+            const currentUrl = `${window.location.protocol}//${window.location.host}`;
+            const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+            const isHTTPS = window.location.protocol === 'https:';
+            
+            let errorMsg = 'Voice service unreachable. ';
+            if (!isHTTPS && !isLocalhost) {
+                errorMsg += `Switch to HTTPS (${currentUrl.replace('http://', 'https://')}) or use http://localhost:5000`;
+            } else if (!isHTTPS) {
+                errorMsg += 'Make sure you\'re using http://localhost:5000 or enable HTTPS with USE_HTTPS=1';
+            } else {
+                errorMsg += 'Check internet connection or browser shields/extensions blocking speech service.';
+            }
+            setError(errorMsg, true);
+        } else if (event.error === 'no-speech') {
+            setError('No speech detected. Try again closer to the mic.');
+        } else if (event.error === 'not-allowed') {
+            setError('Microphone blocked. Allow mic access and retry.', true);
+        } else {
+            setError(event.error || 'Speech recognition error');
+        }
         listening = false;
         updateButton();
     };
@@ -94,6 +140,7 @@ function toggleVoice() {
     if (!recognition) {
         initRecognition();
     }
+    if (!ensureVoiceReady()) return;
     if (!recognition) return;
 
     if (listening) {
@@ -103,21 +150,22 @@ function toggleVoice() {
 
     listening = true;
     updateButton();
-    updateStatus('Listening…');
+    updateStatus('Listening...');
     recognition.start();
 }
 
 function updateButton() {
     const btn = document.getElementById('voiceButton');
-    btn.textContent = listening ? '⏹ Stop' : '🎤 Start Listening';
+    btn.innerHTML = listening ? '&#9209; Stop' : '&#127908; Start Listening';
 }
 
 function updateStatus(text) {
     document.getElementById('status').textContent = text;
 }
 
-function setError(msg) {
+function setError(msg, disableVoice = false) {
     document.getElementById('error').textContent = msg;
+    document.getElementById('voiceButton').disabled = disableVoice;
 }
 
 function clearError() {
@@ -125,9 +173,9 @@ function clearError() {
 }
 
 async function sendCommand(command) {
-    document.getElementById('command').textContent = command || '—';
-    document.getElementById('expression').textContent = '—';
-    document.getElementById('result').textContent = '…';
+    document.getElementById('command').textContent = command || '\u2014';
+    document.getElementById('expression').textContent = '\u2014';
+    document.getElementById('result').textContent = '...';
 
     try {
         const response = await fetch('/calculate', {
@@ -147,7 +195,7 @@ async function sendCommand(command) {
         speak(`The answer is ${data.result}`);
     } catch (err) {
         setError(err.message);
-        document.getElementById('result').textContent = '—';
+        document.getElementById('result').textContent = '\u2014';
     }
 }
 
@@ -172,11 +220,21 @@ function pushHistory(command, expression, result) {
     const history = document.getElementById('history');
     const row = document.createElement('div');
     row.className = 'history-row';
-    row.innerHTML = `<span>${command}</span><span class=\"muted\">${expression}</span><span class=\"pill\">${result}</span>`;
+    row.innerHTML = `<span>${command}</span><span class="muted">${expression}</span><span class="pill">${result}</span>`;
     history.prepend(row);
     // keep last 6 entries
     while (history.children.length > 6) history.removeChild(history.lastChild);
 }
+
+window.addEventListener('offline', () => {
+    setError('You went offline. Voice input is paused.', true);
+    if (recognition && listening) recognition.stop();
+});
+
+window.addEventListener('online', () => {
+    clearError();
+    updateButton();
+});
 
 updateButton();
 updateStatus('Idle');
