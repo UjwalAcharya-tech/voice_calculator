@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Voice Calculator Pro</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+
+<main class="grid">
+  <section class="card hero">
+      <div class="eyebrow">AI Calculator · Voice + Keyboard</div>
+      <h1>Speak it. Type it.<br><span class="accent">Get instant math.</span></h1>
+      <p class="lede">Natural language to arithmetic with safe evaluation. Say "twenty one times four" or type "21 * 4".</p>
+
+      <div class="controls">
+          <button id="voiceButton" class="primary" onclick="toggleVoice()">🎤 Start Listening</button>
+          <span id="status" class="status">Idle</span>
+      </div>
+
+      <form id="calcForm" class="form" onsubmit="submitExpression(event)">
+          <label for="expressionInput">Keyboard mode</label>
+          <div class="input-row">
+              <input id="expressionInput" name="expression" type="text" autocomplete="off" placeholder='Examples: "18 / 3", "2 ** 4", "7 plus 8 minus 3"' />
+              <button type="submit" class="secondary">Calculate</button>
+          </div>
+      </form>
+
+      <div class="output">
+          <div class="row"><span class="label">Heard / Typed</span><span id="command">—</span></div>
+          <div class="row"><span class="label">Parsed Expression</span><span id="expression">—</span></div>
+          <div class="row highlight"><span class="label">Result</span><span id="result">—</span></div>
+      </div>
+
+      <p id="error" class="error"></p>
+  </section>
+
+  <section class="card info">
+      <h2>Supported arithmetic</h2>
+      <ul class="pill-list">
+          <li>Addition & subtraction: <code>+</code> <code>-</code></li>
+          <li>Multiplication: <code>*</code></li>
+          <li>Division: <code>/</code></li>
+          <li>Powers: <code>**</code></li>
+          <li>Parentheses for grouping</li>
+      </ul>
+      <h3>Try saying</h3>
+      <ol class="examples">
+          <li>"what is fifty divided by five"</li>
+          <li>"( ten minus three ) times two"</li>
+          <li>"two to the power of five"</li>
+      </ol>
+      <div class="history" id="history"></div>
+  </section>
+</main>
+
+<script>
+const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+const synth = window.speechSynthesis;
+let recognition;
+let listening = false;
+
+function initRecognition() {
+    if (!SpeechRecognition) {
+        setError('Your browser does not support speech recognition. Try Chrome desktop.');
+        return;
+    }
+
+    recognition = new SpeechRecognition();
+    recognition.lang = 'en-US';
+    recognition.continuous = false;
+    recognition.interimResults = false;
+
+    recognition.onstart = () => updateStatus('Listening…');
+    recognition.onend = () => {
+        listening = false;
+        updateStatus('Idle');
+        updateButton();
+    };
+    recognition.onerror = (event) => {
+        setError(event.error || 'Speech recognition error');
+        listening = false;
+        updateButton();
+    };
+    recognition.onresult = (event) => {
+        const transcript = event.results[0][0].transcript;
+        sendCommand(transcript);
+    };
+}
+
+function toggleVoice() {
+    clearError();
+    if (!recognition) {
+        initRecognition();
+    }
+    if (!recognition) return;
+
+    if (listening) {
+        recognition.stop();
+        return;
+    }
+
+    listening = true;
+    updateButton();
+    updateStatus('Listening…');
+    recognition.start();
+}
+
+function updateButton() {
+    const btn = document.getElementById('voiceButton');
+    btn.textContent = listening ? '⏹ Stop' : '🎤 Start Listening';
+}
+
+function updateStatus(text) {
+    document.getElementById('status').textContent = text;
+}
+
+function setError(msg) {
+    document.getElementById('error').textContent = msg;
+}
+
+function clearError() {
+    setError('');
+}
+
+async function sendCommand(command) {
+    document.getElementById('command').textContent = command || '—';
+    document.getElementById('expression').textContent = '—';
+    document.getElementById('result').textContent = '…';
+
+    try {
+        const response = await fetch('/calculate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ command })
+        });
+        const data = await response.json();
+
+        if (!response.ok) {
+            throw new Error(data.error || 'Unable to calculate');
+        }
+
+        document.getElementById('expression').textContent = data.expression;
+        document.getElementById('result').textContent = data.result;
+        pushHistory(command, data.expression, data.result);
+        speak(`The answer is ${data.result}`);
+    } catch (err) {
+        setError(err.message);
+        document.getElementById('result').textContent = '—';
+    }
+}
+
+function speak(text) {
+    if (!synth) return;
+    const utterance = new SpeechSynthesisUtterance(text);
+    synth.cancel();
+    synth.speak(utterance);
+}
+
+function submitExpression(event) {
+    event.preventDefault();
+    const value = document.getElementById('expressionInput').value.trim();
+    if (!value) {
+        setError('Type an expression first.');
+        return;
+    }
+    sendCommand(value);
+}
+
+function pushHistory(command, expression, result) {
+    const history = document.getElementById('history');
+    const row = document.createElement('div');
+    row.className = 'history-row';
+    row.innerHTML = `<span>${command}</span><span class=\"muted\">${expression}</span><span class=\"pill\">${result}</span>`;
+    history.prepend(row);
+    // keep last 6 entries
+    while (history.children.length > 6) history.removeChild(history.lastChild);
+}
+
+updateButton();
+updateStatus('Idle');
+</script>
+
+</body>
+</html>
